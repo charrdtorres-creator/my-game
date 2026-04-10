@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nature Tap Challenge</title>
+    <style>
+        :root {
+            --team1-color: #ff4757;
+            --team2-color: #2e86de;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f2f5;
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Split Screen Layout */
+        .game-side {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            border: 5px solid #333;
+            transition: opacity 0.3s;
+        }
+
+        #side-1 { border-color: var(--team1-color); }
+        #side-2 { border-color: var(--team2-color); }
+
+        /* HUD (Heads Up Display) */
+        .stats {
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            z-index: 10;
+        }
+
+        .score { font-size: 2rem; font-weight: bold; }
+        .timer { font-size: 1.5rem; color: #555; }
+
+        /* Game Area */
+        .play-area {
+            flex-grow: 1;
+            position: relative;
+            background: #eef;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        /* Game Items */
+        .item {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 50px; /* Size for Emojis */
+            transition: transform 0.1s;
+        }
+
+        .item img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* Overlay Screens */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .freeze-overlay {
+            background: rgba(0, 162, 255, 0.4);
+            display: none;
+            pointer-events: none;
+        }
+
+        .btn-start {
+            padding: 20px 40px;
+            font-size: 24px;
+            cursor: pointer;
+            border-radius: 50px;
+            border: none;
+            background: #2ed573;
+            color: white;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .frozen {
+            pointer-events: none;
+            filter: grayscale(1);
+            opacity: 0.6;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-side" id="side-1">
+        <div class="stats">
+            <div class="score" id="score-1">🍎 0</div>
+            <div class="timer" id="timer-1">30s</div>
+        </div>
+        <div class="play-area" id="area-1"></div>
+        <div class="overlay" id="overlay-1">
+            <button class="btn-start" onclick="startGame(1)">START TEAM 1</button>
+        </div>
+        <div class="overlay freeze-overlay" id="freeze-1"><h1>❄️ FROZEN! ❄️</h1></div>
+    </div>
+
+    <div class="game-side" id="side-2">
+        <div class="stats">
+            <div class="score" id="score-2">💎 0</div>
+            <div class="timer" id="timer-2">30s</div>
+        </div>
+        <div class="play-area" id="area-2"></div>
+        <div class="overlay" id="overlay-2">
+            <button class="btn-start" onclick="startGame(2)">START TEAM 2</button>
+        </div>
+        <div class="overlay freeze-overlay" id="freeze-2"><h1>❄️ FROZEN! ❄️</h1></div>
+    </div>
+
+    <audio id="sound-correct" src="https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3"></audio>
+    <audio id="sound-wrong" src="https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3"></audio>
+
+    <script>
+        const GAME_TIME = 30;
+        const TARGETS = [
+            { type: 'correct', icon: '🌊' }, // Sea
+            { type: 'correct', icon: '🌧️' }, // Rain
+            { type: 'correct', icon: '⛲' }  // Waterfall
+        ];
+        const DISTRACTIONS = [
+            { type: 'wrong', icon: '🏖️' }, // Sand
+            { type: 'wrong', icon: '🍃' }, // Leaves
+            { type: 'wrong', icon: '🌳' }, // Trees
+            { type: 'wrong', icon: '🪨' }, // Rocks
+            { type: 'wrong', icon: '🐟' }  // Fish
+        ];
+
+        let gameState = {
+            1: { score: 0, timeLeft: GAME_TIME, active: false, timer: null },
+            2: { score: 0, timeLeft: GAME_TIME, active: false, timer: null }
+        };
+
+        function startGame(team) {
+            const state = gameState[team];
+            state.score = 0;
+            state.timeLeft = GAME_TIME;
+            state.active = true;
+            
+            document.getElementById(`score-${team}`).innerText = state.score;
+            document.getElementById(`overlay-${team}`).style.display = 'none';
+            
+            spawnItems(team);
+            
+            state.timer = setInterval(() => {
+                state.timeLeft--;
+                document.getElementById(`timer-${team}`).innerText = state.timeLeft + 's';
+                
+                if (state.timeLeft <= 0) {
+                    endGame(team);
+                }
+            }, 1000);
+        }
+
+        function spawnItems(team) {
+            const area = document.getElementById(`area-${team}`);
+            area.innerHTML = '';
+            
+            // Create a mix of items
+            const pool = [...TARGETS, ...TARGETS, ...DISTRACTIONS, ...DISTRACTIONS];
+            
+            pool.forEach(data => {
+                const item = document.createElement('div');
+                item.className = 'item';
+                item.innerHTML = data.icon; // Swap this for <img src="your-image.png">
+                
+                // Random Position
+                item.style.left = Math.random() * (area.clientWidth - 80) + 'px';
+                item.style.top = Math.random() * (area.clientHeight - 80) + 'px';
+                
+                item.onclick = () => handleTap(team, data.type, item);
+                area.appendChild(item);
+            });
+        }
+
+        function handleTap(team, type, element) {
+            if (!gameState[team].active) return;
+
+            if (type === 'correct') {
+                gameState[team].score += 5;
+                document.getElementById(`sound-correct`).play();
+                element.style.transform = 'scale(0)'; // "Pop" effect
+                setTimeout(() => {
+                    element.remove();
+                    checkRepopulate(team);
+                }, 100);
+            } else {
+                document.getElementById(`sound-wrong`).play();
+                freezePlayer(team);
+            }
+            
+            document.getElementById(`score-${team}`).innerText = (team === 1 ? '🍎 ' : '💎 ') + gameState[team].score;
+        }
+
+        function freezePlayer(team) {
+            const side = document.getElementById(`side-${team}`);
+            const freezeScreen = document.getElementById(`freeze-${team}`);
+            
+            side.classList.add('frozen');
+            freezeScreen.style.display = 'flex';
+            
+            setTimeout(() => {
+                side.classList.remove('frozen');
+                freezeScreen.style.display = 'none';
+            }, 3000);
+        }
+
+        function checkRepopulate(team) {
+            const area = document.getElementById(`area-${team}`);
+            if (area.children.length < 4) {
+                spawnItems(team);
+            }
+        }
+
+        function endGame(team) {
+            clearInterval(gameState[team].timer);
+            gameState[team].active = false;
+            
+            const overlay = document.getElementById(`overlay-${team}`);
+            overlay.style.display = 'flex';
+            overlay.innerHTML = `
+                <h1>TIME UP!</h1>
+                <p style="font-size:30px">Final Score: ${gameState[team].score}</p>
+                <button class="btn-start" onclick="location.reload()">REPLAY</button>
+            `;
+            
+            // Check if both finished to declare winner
+            if (!gameState[1].active && !gameState[2].active && gameState[1].timeLeft === 0 && gameState[2].timeLeft === 0) {
+                announceWinner();
+            }
+        }
+
+        function announceWinner() {
+            const s1 = gameState[1].score;
+            const s2 = gameState[2].score;
+            let winnerText = s1 > s2 ? "TEAM 1 WINS!" : s2 > s1 ? "TEAM 2 WINS!" : "IT'S A TIE!";
+            alert(winnerText);
+        }
+    </script>
+</body>
+</html>
